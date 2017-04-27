@@ -96,6 +96,7 @@ Section "MainSection" SEC01
   File "..\x64\Release\wesuex_starts.exe"
   File "..\x64\Release\wesuex.exe"
   File "..\x64\Release\default.ini"
+  DetailPrint "$(inst_write_default_print)"
   WriteIniStr "$INSTDIR\default.ini" "START_MODE" "Program" "$INSTDIR\wesuex_starts.exe"
   ;写入右键图标
   WriteRegStr HKCR "*\shell\wesuex" "Icon" "$INSTDIR\wesuex.exe"
