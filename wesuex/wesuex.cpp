@@ -19,56 +19,6 @@ using namespace std;
 //设置程序为无窗口
 #pragma comment(linker, "/subsystem:\"console\" /entry:\"wmainCRTStartup\"")
 
-WCHAR wszProcessName[MAX_PATH] = L"C:\\Windows\\System32\\notepad.exe";
-WCHAR wszIntegritySid[] = L"S-1-16-4096";
-
-bool CreateLowProcess()
-{
-	WINAPI_TOKEN hCurrentProcessToken;
-	WINAPI_TOKEN hNewProcessToken;
-	if(hCurrentProcessToken.GetCurrentProcessToken()==false)
-	{
-		return false;
-	}
-	SECURITY_ATTRIBUTES SecAttr;
-	SecAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
-	SecAttr.bInheritHandle = TRUE;//设定安全权限为继承
-	SecAttr.lpSecurityDescriptor = NULL;
-	//DuplicateTokenEx(hCurrentProcessToken.hToken, MAXIMUM_ALLOWED, &SecAttr,
-	//	SecurityImpersonation, TokenPrimary, &hNewProcessToken.hToken);
-	hNewProcessToken = hCurrentProcessToken.Duplicate_Token(&SecAttr, SecurityImpersonation, TokenPrimary);
-	if (hNewProcessToken.hToken == 0)
-	{
-		return false;
-	}
-	WIN_SID IntegritySid;
-	if (IntegritySid.wstring_to_sid(wszIntegritySid) == false)
-	{
-		return false;
-	}
-	TOKEN_MANDATORY_LABEL TIL = { 0 };
-	PROCESS_INFORMATION ProcInfo = { 0 };
-	STARTUPINFO StartupInfo = { 0 };
-	ULONG ExitCode = 0;
-	TIL.Label.Attributes = SE_GROUP_INTEGRITY;
-	TIL.Label.Sid = IntegritySid.pSid_buffer;
-
-	if (hNewProcessToken.SetTokenInfo(TokenIntegrityLevel, &TIL,
-		sizeof(TOKEN_MANDATORY_LABEL) + IntegritySid.length())
-		== false)
-	{
-		return false;
-	}
-	BOOL bRet = CreateProcessAsUser(hNewProcessToken.hToken, NULL,
-		wszProcessName, NULL, NULL, FALSE,
-		0, NULL, NULL, &StartupInfo, &ProcInfo);
-	if (bRet==0)
-	{
-		return false;
-	}
-	return true;
-}
-
 //stdio.h
 bool PathIsExistFile(const wstring &wstr_path)
 {
@@ -111,6 +61,7 @@ bool PathIsExistFile(const string &str_path)
 class COMMAND_OPTIONS
 {
 public:
+	wstring m_wstr_program_current_dir;
 	wstring m_wstr_shell_execute;
 	wstring m_wstr_program_path;
 	wstring m_wstr_program_command;
@@ -126,6 +77,15 @@ public:
 	COMMAND_OPTIONS(int argc, wchar_t *argv[], wchar_t *envp[])
 	{
 		load_command(argc, argv, envp);
+	}
+	void load_start_program_form_config()
+	{
+		m_wstr_program_path.clear();
+		wstring wstr_tmp = m_config.ReadString(L"START_MODE", L"Program");
+		m_wstr_program_path = m_config.replace_string(wstr_tmp, L"%program_current_dir%", m_wstr_program_current_dir);
+		wstr_tmp = m_config.ReadString(L"START_MODE", L"Command");
+		m_wstr_program_command = m_config.replace_string(wstr_tmp, L"%command%", m_wstr_shell_execute);
+		m_wstr_program_current_directory = m_config.ReadString(L"START_MODE", L"Current_Directory");
 	}
 	void load_command(int argc, wchar_t *argv[], wchar_t *envp[])
 	{
@@ -196,12 +156,14 @@ public:
 			exit(0);
 		}
 		
+		//获取程序所在文件夹的路径
+		GetProgramPath::GetCurrentProcessPathW(NULL, &m_wstr_program_current_dir, NULL);
 		// load config
 		
 		//如果没有指定配置文件路径，并且设定了要启动的程序则尝试寻找启动程序对应的配置文件
 		if (m_wstr_config_filepath.empty() == true && m_wstr_program_path.empty() != true)
 		{
-			GetProgramPath::GetCurrentProcessPathW(NULL, &m_wstr_config_filepath, NULL);
+			m_wstr_config_filepath = m_wstr_program_current_dir;
 			m_wstr_config_filepath += L"\\";
 			wstring::size_type n_name_start = m_wstr_program_path.rfind('\\');
 			if (n_name_start != wstring::npos)
@@ -232,32 +194,21 @@ public:
 		//设定为shell启动时，强制使用配置文件中的参数
 		if (m_wstr_shell_execute.empty() != true)
 		{
-			m_wstr_program_path.clear();
-			m_wstr_program_path = m_config.ReadString(L"START_MODE", L"Program");
-			wstring wstr_tmp = m_config.ReadString(L"START_MODE", L"Command");
-			m_wstr_program_command = m_config.replace_string(wstr_tmp, L"%command%", m_wstr_shell_execute);
-			m_wstr_program_current_directory = m_config.ReadString(L"START_MODE", L"Current_Directory");
+			load_start_program_form_config();
 		}
 
 		//校验启动路径
 		if (m_wstr_program_path.length() == 0 && m_wstr_program_command.length() == 0)
 		{
-			m_wstr_program_path = m_config.ReadString(L"START_MODE", L"Program");
-			m_wstr_program_command = m_config.ReadString(L"START_MODE", L"Command");
-			m_wstr_program_current_directory = m_config.ReadString(L"START_MODE", L"Current_Directory");
-			if (m_wstr_program_path.length() == 0 && m_wstr_program_command.length() == 0)
-			{
-				printf("ERROR : Couldn't find start program.\n");
-				print_help();
-				exit(1);
-			}
+			load_start_program_form_config();
 		}
-
+		//检查要启动的程序是否存在，如果不存在则退出
 		if (PathIsExistFile(m_wstr_program_path) == false)
 		{
 			printf("ERROR : Couldn't find start program.\n");
 			exit(1);
 		}
+
 		//获取启动模式
 		m_wstr_config_start_mode = m_config.ReadString(L"START_MODE", L"MODE");
 		if (m_wstr_config_start_mode == L"LOW_PERMISSIONS")
@@ -340,6 +291,14 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
 		CreateOtherUserProcess(opts.m_wstr_config_user_domain,
 			opts.m_wstr_config_user_name,
 			opts.m_wstr_config_user_password,
+			opts.m_wstr_program_path,
+			opts.m_wstr_program_command,
+			opts.m_wstr_program_current_directory);
+		return 0;
+	}
+	if (opts.m_wstr_config_start_mode == L"NORMAL")
+	{
+		CreateNewProcess_Normal(
 			opts.m_wstr_program_path,
 			opts.m_wstr_program_command,
 			opts.m_wstr_program_current_directory);

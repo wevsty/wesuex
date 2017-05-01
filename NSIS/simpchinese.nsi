@@ -1,10 +1,15 @@
-ï»¿;Installer strings
+;Installer strings
 
 ;LangString inst_shell_menu_name ${LANG_ENGLISH} "run with wesuex"
-LangString inst_shell_menu_name ${LANG_SIMPCHINESE} "ä½¿ç”¨wesuexè¿è¡Œ"
+LangString inst_shell_menu_name ${LANG_SIMPCHINESE} "Ê¹ÓÃwesuexÔËĞĞ"
 
 ;LangString inst_write_shell_menu_print ${LANG_ENGLISH} "write reg HKCR *\shell\wesuex"
-LangString inst_write_shell_menu_print ${LANG_SIMPCHINESE} "å†™å…¥æ³¨å†Œè¡¨ HKCR *\shell\wesuex"
+LangString inst_write_shell_menu_print ${LANG_SIMPCHINESE} "Ğ´Èë×¢²á±í HKCR *\shell\wesuex"
 
+;LangString uninstall_confirm_tips ${LANG_ENGLISH} "Are you sure remove $(^Name) ?"
+LangString uninstall_confirm_tips ${LANG_SIMPCHINESE} "ÄãÈ·¶¨ÒªÒÆ³ı $(^Name) Âğ?"
+
+;LangString uninstall_success_tips ${LANG_ENGLISH} "$(^Name) Successfully removed."
+LangString uninstall_success_tips ${LANG_SIMPCHINESE} "$(^Name) ÒÑ³É¹¦ÒÆ³ı."
 ;LangString inst_write_default_print ${LANG_ENGLISH} "write default config(default.ini)"
-LangString inst_write_default_print ${LANG_SIMPCHINESE} "å†™å…¥é»˜è®¤é…ç½®æ–‡ä»¶(default.ini)"
+;LangString inst_write_default_print ${LANG_SIMPCHINESE} "Ğ´ÈëÄ¬ÈÏÅäÖÃÎÄ¼ş(default.ini)"

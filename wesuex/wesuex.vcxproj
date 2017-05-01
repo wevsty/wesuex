@@ -151,7 +151,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="auto_delete_point.hpp" />
+    <ClInclude Include="auto_delete_template.hpp" />
     <ClInclude Include="general_define.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="win_ini_config.hpp" />

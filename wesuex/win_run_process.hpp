@@ -2,7 +2,7 @@
 #include "general_define.h"
 #include "win_token_class.hpp"
 #include "win_sid_class.hpp"
-#include "auto_delete_point.hpp"
+#include "auto_delete_template.hpp"
 #include "win_report_error.hpp"
 #include <windows.h>
 //CreateToolhelp32Snapshot
@@ -106,7 +106,10 @@ bool CreateNewProcess_As_User(HANDLE hToken,
 	{
 		CloseHandle(ProcInfo.hThread);
 	}
-	free(wsz_command_dup);
+	if (wsz_command_dup != NULL)
+	{
+		free(wsz_command_dup);
+	}
 	return true;
 }
 
@@ -159,7 +162,10 @@ bool CreateNewProcess_With_Token(HANDLE hToken,
 		CloseHandle(ProcInfo.hThread);
 	}
 	//delete[] wsz_command_dup;
-	free(wsz_command_dup);
+	if (wsz_command_dup != NULL)
+	{
+		free(wsz_command_dup);
+	}
 	return true;
 }
 bool CreateProcess_Used_Token(HANDLE hToken,
@@ -206,7 +212,7 @@ HANDLE GetSystemToken()
 //以当前进程创建受限制令牌
 HANDLE CreateCurrentProcessRestrictedToken(const vector<WELL_KNOWN_SID_TYPE>& vec_disable_sid)
 {
-	AUTO_DELETE_POINT auto_delete;
+	AUTO_DELETE_TEMPLATE<void*> auto_delete;
 	WINAPI_TOKEN current_token;
 	if (current_token.GetCurrentProcessToken() == false)
 	{
@@ -370,7 +376,7 @@ bool CreateNewProcess_With_Logon(
 	const wchar_t *wsz_current_dir = NULL;
 
 	const wchar_t *wsz_domain_name = NULL;
-	const wchar_t *wsz_user_name = NULL;
+	wchar_t *wsz_user_name = NULL;
 	const wchar_t *wsz_password = NULL;
 
 	STARTUPINFO si = { 0 };
@@ -378,43 +384,63 @@ bool CreateNewProcess_With_Logon(
 	si.lpDesktop = NULL;
 	si.cb = sizeof(STARTUPINFO);
 	LPVOID lpvEnv = NULL;
+	PSID plogon_sid = NULL;
+	PVOID pProfileBuffer = NULL;
+	DWORD dwProfileLength = NULL;
+	QUOTA_LIMITS User_QuotaLimits = { 0 };
+
 	if (wstr_domain_name.empty() != true)
 	{
 		wsz_domain_name = wstr_domain_name.c_str();
 	}
 	if (wstr_user_name.empty() != true)
 	{
-		wsz_user_name = wstr_user_name.c_str();
+		wsz_user_name = _wcsdup(wstr_user_name.c_str());
 	}
 	if (wstr_password.empty() != true)
 	{
 		wsz_password = wstr_password.c_str();
 	}
+	//LoadUserProfile
+	PROFILEINFOW profile = { 0 };
+	profile.dwSize = sizeof(PROFILEINFOW);
+	profile.lpUserName = wsz_user_name;
+	
 	//wsz_domain_name = wstr_domain_name.c_str();
-	if (!LogonUser(wstr_user_name.c_str(), wstr_domain_name.c_str(), wstr_password.c_str(),
-		LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, &hUserToken))
+	if (!LogonUserExW(wsz_user_name, wsz_domain_name, wsz_password,
+		LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, &hUserToken, 
+		&plogon_sid,&pProfileBuffer,&dwProfileLength, &User_QuotaLimits))
 	{
 		bret = false;
-		report_error(L"LogonUser");
+		report_error(L"LogonUserEx");
 		goto GO_LOGON_CLEAN_UP;
 		//return false;
 	}
-	
+
+	//加载创建用户文件夹
+	LoadUserProfileW(hUserToken, &profile);
+	if (profile.hProfile != NULL)
+	{
+		UnloadUserProfile(hUserToken, profile.hProfile);
+		profile.hProfile = NULL;
+	}
+
 	if (!CreateEnvironmentBlock(&lpvEnv, hUserToken, TRUE))
 	{
 		bret = false;
 		report_error(L"CreateEnvironmentBlock");
 		goto GO_LOGON_CLEAN_UP;
 	}
-	wchar_t wszUserProfile[MAX_PATH];
+	wchar_t wszUserProfile[MAX_PATH] = { 0 };
 	DWORD dwSize = ARRAY_SIZE(wszUserProfile);
 	if (!GetUserProfileDirectoryW(hUserToken, wszUserProfile, &dwSize))
 	{
-		//
+		///*
 		report_error(L"GetUserProfileDirectory");
 		bret = false;
 		goto GO_LOGON_CLEAN_UP;
 		//return false;
+		//*/
 	}
 
 
@@ -430,7 +456,7 @@ bool CreateNewProcess_With_Logon(
 	{
 		wsz_current_dir = wstr_current_directory.c_str();
 	}
-
+	//lpvEnv = NULL;
 	if (!CreateProcessWithLogonW(wsz_user_name, wsz_domain_name, wsz_password,
 		LOGON_WITH_PROFILE, wsz_apppath, wsz_command,
 		CREATE_UNICODE_ENVIRONMENT, lpvEnv, wszUserProfile, &si, &pi))
@@ -440,6 +466,21 @@ bool CreateNewProcess_With_Logon(
 	}
 	bret = true;
 GO_LOGON_CLEAN_UP:
+	if (profile.hProfile !=NULL)
+	{
+		UnloadUserProfile(hUserToken, profile.hProfile);
+		profile.hProfile = NULL;
+	}
+	if (wsz_user_name != NULL)
+	{
+		free(wsz_user_name);
+		wsz_user_name = NULL;
+	}
+	if (plogon_sid != NULL)
+	{
+		LocalFree(plogon_sid);
+		plogon_sid = NULL;
+	}
 	if (hUserToken!=INVALID_HANDLE_VALUE)
 	{
 		CloseHandle(hUserToken);
@@ -476,4 +517,55 @@ bool CreateOtherUserProcess(const wstring& domain_name, const wstring& user_name
 {
 	return CreateNewProcess_With_Logon(domain_name, user_name, password,
 		filepath, command, current_directory);
+}
+
+bool CreateNewProcess_Normal(const wstring& wstr_porcess_path,
+	const wstring& wstr_command,
+	const wstring& wstr_current_directory
+)
+{
+	PROCESS_INFORMATION ProcInfo = { 0 };
+	STARTUPINFO StartupInfo = { 0 };
+	StartupInfo.cb = sizeof(STARTUPINFO);
+	GetStartupInfoW(&StartupInfo);
+	StartupInfo.wShowWindow = SW_SHOWNORMAL;
+	const wchar_t* wsz_porcess_path = NULL;
+	if (wstr_porcess_path.empty() == false)
+	{
+		wsz_porcess_path = wstr_porcess_path.c_str();
+	}
+	wchar_t* wsz_command_dup = NULL;
+	if (wstr_command.length() != 0)
+	{
+		wsz_command_dup = _wcsdup(wstr_command.c_str());
+	}
+	const wchar_t* wsz_current_directory = NULL;
+	if (wstr_current_directory.empty() == false)
+	{
+		wsz_current_directory = wstr_current_directory.c_str();
+	}
+	BOOL bRet = CreateProcessW(wsz_porcess_path,
+		wsz_command_dup, NULL, NULL, FALSE,
+		CREATE_NEW_CONSOLE | CREATE_UNICODE_ENVIRONMENT,
+		NULL, wsz_current_directory, &StartupInfo, &ProcInfo);
+	if (bRet == 0)
+	{
+		//delete[] wsz_command_dup;
+		free(wsz_command_dup);
+		return false;
+	}
+	if (ProcInfo.hProcess != 0)
+	{
+		CloseHandle(ProcInfo.hProcess);
+	}
+	if (ProcInfo.hThread != 0)
+	{
+		CloseHandle(ProcInfo.hThread);
+	}
+	if (wsz_command_dup != NULL)
+	{
+		free(wsz_command_dup);
+	}
+	
+	return true;
 }
